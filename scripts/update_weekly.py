@@ -106,6 +106,21 @@ ENTRIES = [
             ("8035",  "東京エレクトロン",      0.228,  45934, "保有継続", "△", "AI投資継続で微小含み益継続",                   "決算ガイダンス確認"),
             ("9983",  "ファーストリテイリング", 0.149,  70483, "保有継続", "△", "取得比+5.02%。利確タイミング引き続き意識",      "次回決算前に利確検討"),
         ],
+        "candidates": [
+            # (code, name, sector, current_price, reason, risk)
+            ("2802", "味の素",                 "食品・化学素材", 4758,
+             "AI向けABF絶縁フィルムで世界シェア約95%。半導体パッケージ需要の直接受益者。食品事業との複合で景気後退耐性も高い",
+             "AI設備投資縮小リスク・食品事業の原材料コスト上昇"),
+            ("6976", "太陽誘電",               "電子部品",       6508,
+             "AIサーバー向けMLCC需要急増。3Q営業利益前年比+96.6%。車載・AI向け積層セラコンで成長継続見込み",
+             "中国生産依存・地政学リスク。半導体市況の急変動に注意"),
+            ("8306", "三菱UFJフィナンシャル", "金融",           2760,
+             "日銀利上げ継続で利ザヤ拡大。配当74円・利回り約2.68%。現ポートフォリオに金融セクター未保有で分散効果大",
+             "景気後退時の貸倒リスク・円高転換で海外資産の評価額下落"),
+            ("8750", "第一生命HD",             "保険",           1411,
+             "金利上昇恩恵・海外保険事業拡大。増配継続見通し。保険セクターは現ポートフォリオ未保有",
+             "円高・株安で資産運用収益悪化リスク。海外損保の自然災害リスク"),
+        ],
     },
 ]
 
@@ -137,6 +152,30 @@ def update_portfolio_trend(ws, entry):
     fc(ws.cell(r, 7), f"=IFERROR(F{r}/(C{r}-F{r}),0)", fmt="0.00%", align="center")
     ic(ws.cell(r, 8), entry["trend_memo"], align="left")
 
+def update_purchase_candidates(ws, entry):
+    candidates = entry.get("candidates")
+    if not candidates:
+        return
+    r = ws.max_row + 1
+    # セパレーター行
+    for c in range(1, 8):
+        cell = ws.cell(r, c)
+        cell.fill = PatternFill("solid", fgColor=NAVY)
+        cell.border = thin_border()
+        cell.font = Font(name="Arial", bold=True, color=WHITE, size=10)
+    ws.cell(r, 1).value = "【新規購入検討候補】"
+    ws.cell(r, 1).alignment = Alignment(horizontal="center", vertical="center")
+    r += 1
+    for code, name, sector, price, reason, risk in candidates:
+        ic(ws.cell(r, 1), entry["week"])
+        ic(ws.cell(r, 2), f"{code} {name}")
+        ic(ws.cell(r, 3), "新規検討")
+        ic(ws.cell(r, 4), f"{sector} / ¥{price:,}", align="left")
+        ic(ws.cell(r, 5), "")
+        ic(ws.cell(r, 6), reason, align="left")
+        ic(ws.cell(r, 7), risk, align="left")
+        r += 1
+
 def update_ai_advice(ws, entry):
     r = ws.max_row + 1
     for code, name, direction, eval_, reason, improve in [
@@ -164,12 +203,21 @@ def main():
     update_weekly_log(wb["週次ログ"], entry)
     update_portfolio_trend(wb["ポートフォリオ推移"], entry)
     update_ai_advice(wb["AIアドバイス評価"], entry)
+    update_purchase_candidates(wb["AIアドバイス評価"], entry)
 
-    # 現在ポートフォリオ更新
+    # 現在ポートフォリオ更新（コードで行を特定）
     ws = wb["現在ポートフォリオ"]
-    for i, row in enumerate(entry["portfolio"]):
-        ws.cell(i + 2, 6).value = row[3]
-        ws.cell(i + 2, 6).number_format = "#,##0"
+    code_to_row = {}
+    for r in range(2, ws.max_row + 1):
+        v = ws.cell(r, 1).value
+        if v:
+            code_to_row[str(v)] = r
+    for row in entry["portfolio"]:
+        code = str(row[0])
+        if code in code_to_row:
+            cell = ws.cell(code_to_row[code], 6)
+            cell.value = row[3]
+            cell.number_format = "#,##0"
 
     wb.save(path)
     print(f"Updated [{entry['week']} {entry['date']}]: {path}")
