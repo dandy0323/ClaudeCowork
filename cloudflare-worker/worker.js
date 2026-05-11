@@ -6,44 +6,20 @@
  * 環境変数 (Workerシークレット):
  *   GEMINI_API_KEY  ... Google AI Studio APIキー
  *   WORKER_SECRET   ... アクセス用パスワード（任意の文字列を設定）
+ *   PORTFOLIO_DATA  ... 取得原価データ・投資方針（CF ダッシュボードで管理）
  */
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_MIME    = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
-// ============================================================
-// ポートフォリオ取得原価データ（更新時はここを変更）
-// ============================================================
-const PORTFOLIO_CONTEXT = `
-【取得原価データ】
-銘柄コード | 銘柄名                    | 保有株数  | 平均取得単価 | 取得総額
-290A       | Synspective               | 100株     | 1,245円     | 124,500円
-4661       | オリエンタルランド        | 17.88株   | 2,796円     | 49,999円
-6146       | ディスコ                  | 0.414株   | 72,470円    | 30,000円
-6758       | ソニーグループ            | 50株      | 3,260円     | 163,000円
-6857       | アドバンテスト            | 1.89株    | 26,408円    | 49,999円
-6954       | ファナック                | 7.23株    | 6,913円     | 49,999円
-7011       | 三菱重工業（一部売り済）  | 2.84株    | 5,104円     | 14,513円
-7735       | SCREENホールディングス    | 1.33株    | 22,390円    | 29,999円
-7974       | 任天堂                    | 11.73株   | 8,522円     | 99,999円
-8035       | 東京エレクトロン          | 0.228株   | 43,777円    | 10,000円
-9983       | ファーストリテイリング    | 0.149株   | 66,737円    | 10,000円
-
-【投資方針】
-- リスク許容度: 中リスク・中期投資
-- 1回の取引上限: 500,000円
-- 取引市場: 東証のみ
-- 具体的な売買指示は行わず、情報整理と検討材料の提供のみ
-- 現在未保有セクター: 金融・保険・食品・化学素材・エネルギー・ヘルスケア
-`.trim();
-
-const ANALYZE_PROMPT = `
+function buildPrompt(portfolioData) {
+  return `
 あなたは株式ポートフォリオの週次レポートを生成するAIアシスタントです。
 
 添付のスクリーンショットは証券会社アプリのポートフォリオ画面です。
 スクリーンショットのデータを正確に読み取り、以下の構成でHTMLレポートを生成してください。
 
-${PORTFOLIO_CONTEXT}
+${portfolioData}
 
 【生成するHTMLレポートの構成】
 1. ヘッダー: 「週次ポートフォリオレポート」タイトル・スクショから読み取った日付や週次情報
@@ -71,6 +47,7 @@ ${PORTFOLIO_CONTEXT}
 - テーブルは横スクロール対応 (overflow-x: auto)
 - HTMLのみ出力（説明文・コードブロック記号不要）
 `.trim();
+}
 
 // ============================================================
 // フロントエンドHTML
@@ -440,6 +417,9 @@ export default {
       if (!imageBase64) return json({ error: '画像データがありません' }, 400);
 
       // ④ Gemini API 呼び出し
+      if (!env.PORTFOLIO_DATA) {
+        return json({ error: 'PORTFOLIO_DATA シークレットが未設定です' }, 500);
+      }
       try {
         const geminiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -450,7 +430,7 @@ export default {
               contents: [{
                 parts: [
                   { inline_data: { mime_type: mediaType, data: imageBase64 } },
-                  { text: ANALYZE_PROMPT },
+                  { text: buildPrompt(env.PORTFOLIO_DATA) },
                 ],
               }],
               generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
