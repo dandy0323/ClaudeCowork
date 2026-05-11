@@ -6,34 +6,30 @@
  * 環境変数 (Workerシークレット):
  *   GEMINI_API_KEY  ... Google AI Studio APIキー
  *   WORKER_SECRET   ... アクセス用パスワード（任意の文字列を設定）
- *   PORTFOLIO_DATA  ... 取得原価データ・投資方針（CF ダッシュボードで管理）
  */
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_MIME    = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
-function buildPrompt(portfolioData) {
-  return `
+const ANALYZE_PROMPT = `
 あなたは株式ポートフォリオの週次レポートを生成するAIアシスタントです。
 
 添付のスクリーンショットは証券会社アプリのポートフォリオ画面です。
-スクリーンショットのデータを正確に読み取り、以下の構成でHTMLレポートを生成してください。
-
-${portfolioData}
+スクリーンショットに表示されている数値をすべて正確に読み取り、以下の構成でHTMLレポートを生成してください。
 
 【生成するHTMLレポートの構成】
-1. ヘッダー: 「週次ポートフォリオレポート」タイトル・スクショから読み取った日付や週次情報
+1. ヘッダー: 「週次ポートフォリオレポート」タイトル
 2. サマリーカード（横並び3枚）:
    - 評価総額（スクショの合計値）
-   - 損益額（取得原価比）
+   - 損益額
    - 損益率
-3. 銘柄別評価テーブル（全カラム）:
-   - 銘柄コード | 銘柄名 | 現在値 | 評価額 | 損益額 | 損益率 | 評価(〇/△/×) | 来週のアクション
+3. 銘柄別評価テーブル:
+   - 銘柄コード | 銘柄名 | 評価額 | 損益額 | 損益率 | 評価(〇/△/×) | 来週のアクション
    - 損益プラスの行: 薄緑背景 (#e8f5e9)
    - 損益マイナスの行: 薄赤背景 (#ffebee)
 4. 今週のポイント（箇条書き3〜5点）: 特に動きの大きかった銘柄・市場の出来事
 5. 新規購入検討候補（2〜3銘柄）:
-   - 現在未保有のセクター（金融・保険・食品・化学素材・エネルギー等）から提案
+   - 現在未保有のセクターから提案
    - 各銘柄: コード・銘柄名・セクター・参考価格帯・注目理由・リスク
 6. 来週の重点確認項目（箇条書き）
 
@@ -47,7 +43,6 @@ ${portfolioData}
 - テーブルは横スクロール対応 (overflow-x: auto)
 - HTMLのみ出力（説明文・コードブロック記号不要）
 `.trim();
-}
 
 // ============================================================
 // フロントエンドHTML
@@ -417,9 +412,6 @@ export default {
       if (!imageBase64) return json({ error: '画像データがありません' }, 400);
 
       // ④ Gemini API 呼び出し
-      if (!env.PORTFOLIO_DATA) {
-        return json({ error: 'PORTFOLIO_DATA シークレットが未設定です' }, 500);
-      }
       try {
         const geminiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -430,7 +422,7 @@ export default {
               contents: [{
                 parts: [
                   { inline_data: { mime_type: mediaType, data: imageBase64 } },
-                  { text: buildPrompt(env.PORTFOLIO_DATA) },
+                  { text: ANALYZE_PROMPT },
                 ],
               }],
               generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
