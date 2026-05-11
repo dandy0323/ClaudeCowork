@@ -259,6 +259,9 @@ function getFrontendHTML() {
 
     // クリップボードから貼り付け
     pasteBtn.addEventListener('click', async () => {
+      if (pasteBtn.disabled) return;
+      pasteBtn.disabled = true;
+      const orig = pasteBtn.textContent;
       try {
         const items = await navigator.clipboard.read();
         for (const item of items) {
@@ -266,14 +269,15 @@ function getFrontendHTML() {
           if (imgType) {
             const blob = await item.getType(imgType);
             setFile(new File([blob], 'screenshot.png', { type: imgType }));
+            pasteBtn.disabled = false;
             return;
           }
         }
         pasteBtn.textContent = '⚠️ クリップボードに画像がありません';
-        setTimeout(() => { pasteBtn.textContent = '📋 スクショを貼り付け'; }, 2500);
+        setTimeout(() => { pasteBtn.textContent = orig; pasteBtn.disabled = false; }, 2500);
       } catch {
         pasteBtn.textContent = '⚠️ 許可が必要です（再タップ）';
-        setTimeout(() => { pasteBtn.textContent = '📋 スクショを貼り付け'; }, 2500);
+        setTimeout(() => { pasteBtn.textContent = orig; pasteBtn.disabled = false; }, 2500);
       }
     });
 
@@ -438,7 +442,7 @@ export default {
       // ④ Gemini API 呼び出し
       try {
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
