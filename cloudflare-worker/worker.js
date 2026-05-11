@@ -256,29 +256,52 @@ function getFrontendHTML() {
     const PASTE_HINT = '<div class="paste-inner"><div class="paste-icon">📋</div><div class="paste-text">ここを長押し → 「ペースト」</div><div class="paste-sub">スクショをコピー後にタップして長押し</div></div>';
 
     pasteZone.addEventListener('paste', e => {
-      e.preventDefault();
-      pasteZone.innerHTML = PASTE_HINT;
-
+      // ① clipboardData.items から画像取得（PC / Android）
       const items = [...(e.clipboardData?.items ?? [])];
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
-          if (file) { setFile(file); return; }
+          if (file) {
+            e.preventDefault();
+            pasteZone.innerHTML = PASTE_HINT;
+            setFile(file);
+            return;
+          }
         }
       }
 
+      // ② HTML内 data URL（一部環境）
       const html = e.clipboardData?.getData('text/html') ?? '';
       const m = html.match(/src="(data:image\/[^"]+)"/);
       if (m) {
+        e.preventDefault();
+        pasteZone.innerHTML = PASTE_HINT;
         fetch(m[1]).then(r => r.blob()).then(blob => {
           setFile(new File([blob], 'screenshot.png', { type: blob.type }));
         });
         return;
       }
 
+      // ③ iOS Safari: preventDefault せずブラウザに <img> を挿入させ、後から取り出す
+      setTimeout(() => {
+        const img = pasteZone.querySelector('img');
+        if (img && img.src) {
+          const src = img.src;
+          pasteZone.innerHTML = PASTE_HINT;
+          fetch(src)
+            .then(r => r.blob())
+            .then(blob => setFile(new File([blob], 'screenshot.png', { type: blob.type || 'image/png' })))
+            .catch(() => showPasteError());
+        } else {
+          showPasteError();
+        }
+      }, 200);
+    });
+
+    function showPasteError() {
       pasteZone.innerHTML = '<div class="paste-inner"><div class="paste-icon">⚠️</div><div class="paste-text" style="color:#c0392b">画像が見つかりませんでした</div><div class="paste-sub">スクショをコピーしてから再度お試しください</div></div>';
       setTimeout(() => { pasteZone.innerHTML = PASTE_HINT; }, 3000);
-    });
+    }
 
     fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
