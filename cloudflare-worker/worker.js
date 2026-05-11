@@ -130,6 +130,14 @@ function getFrontendHTML() {
     .upload-icon { font-size: 40px; margin-bottom: 8px; }
     .upload-text { color: #1F3864; font-size: 15px; font-weight: 600; }
     .upload-sub  { color: #888; font-size: 12px; margin-top: 4px; }
+    .btn-paste {
+      width: 100%; padding: 16px; background: #1F3864; color: #fff; border: none;
+      border-radius: 10px; font-size: 17px; font-weight: 700; cursor: pointer; letter-spacing: 0.5px;
+    }
+    .btn-paste:active { background: #2E75B6; }
+    .hint { text-align: center; font-size: 12px; color: #999; margin: 6px 0 12px; }
+    .divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: #bbb; font-size: 12px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e0e0e0; }
     #preview-wrap { display: none; margin-top: 16px; text-align: center; }
     #preview-img  { max-width: 100%; max-height: 240px; border-radius: 8px; border: 1px solid #ddd; }
     #analyze-btn  { display: none; width: 100%; margin-top: 16px; }
@@ -181,11 +189,12 @@ function getFrontendHTML() {
 
     <!-- アップロード -->
     <div class="card" id="upload-section">
+      <button class="btn-paste" id="paste-btn">📋 スクショを貼り付け</button>
+      <p class="hint">スクショ撮影後すぐにタップ</p>
+      <div class="divider"><span>または</span></div>
       <div class="upload-area" id="drop-zone">
         <input type="file" id="file-input" accept="image/*">
-        <div class="upload-icon">📸</div>
-        <div class="upload-text">スクショを選択 / カメラで撮影</div>
-        <div class="upload-sub">タップして選択、またはここにドロップ</div>
+        <div class="upload-text" style="font-size:13px;color:#888">📂 ファイルから選択</div>
       </div>
       <div id="preview-wrap"><img id="preview-img" alt="選択した画像"></div>
       <button id="analyze-btn" class="btn-primary">🔍 分析してレポートを生成</button>
@@ -209,6 +218,7 @@ function getFrontendHTML() {
     const STORAGE_KEY = 'portfolio_auth_token';
     let authToken = localStorage.getItem(STORAGE_KEY) || '';
 
+    const pasteBtn      = document.getElementById('paste-btn');
     const authSection   = document.getElementById('auth-section');
     const authBtn       = document.getElementById('auth-btn');
     const authError     = document.getElementById('auth-error');
@@ -246,6 +256,34 @@ function getFrontendHTML() {
       showUpload();
     });
     secretInput.addEventListener('keydown', e => { if (e.key === 'Enter') authBtn.click(); });
+
+    // クリップボードから貼り付け
+    pasteBtn.addEventListener('click', async () => {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imgType = item.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            setFile(new File([blob], 'screenshot.png', { type: imgType }));
+            return;
+          }
+        }
+        pasteBtn.textContent = '⚠️ クリップボードに画像がありません';
+        setTimeout(() => { pasteBtn.textContent = '📋 スクショを貼り付け'; }, 2500);
+      } catch {
+        pasteBtn.textContent = '⚠️ 許可が必要です（再タップ）';
+        setTimeout(() => { pasteBtn.textContent = '📋 スクショを貼り付け'; }, 2500);
+      }
+    });
+
+    // キーボード Cmd+V / Ctrl+V でも貼り付け可能
+    document.addEventListener('paste', e => {
+      const items = e.clipboardData?.items ?? [];
+      for (const item of [...items]) {
+        if (item.type.startsWith('image/')) { setFile(item.getAsFile()); return; }
+      }
+    });
 
     // ファイル選択
     fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
