@@ -200,7 +200,8 @@ function getFrontendHTML() {
 
   <script>
     const STORAGE_KEY = 'portfolio_auth_token';
-    let authToken = localStorage.getItem(STORAGE_KEY) || '';
+    let authToken = '';
+    try { authToken = localStorage.getItem(STORAGE_KEY) || ''; } catch (_) {}
 
     const pasteZone     = document.getElementById('paste-zone');
     const pasteInner    = document.getElementById('paste-inner');
@@ -234,9 +235,13 @@ function getFrontendHTML() {
 
     authBtn.addEventListener('click', () => {
       const val = secretInput.value.trim();
-      if (!val) return;
+      if (!val) {
+        authError.textContent = 'パスワードを入力してください';
+        authError.style.display = 'block';
+        return;
+      }
       authToken = val;
-      localStorage.setItem(STORAGE_KEY, authToken);
+      try { localStorage.setItem(STORAGE_KEY, authToken); } catch (_) {}
       authError.style.display = 'none';
       showUpload();
     });
@@ -442,11 +447,10 @@ export default {
           }
         );
 
-        const data = await geminiRes.json();
+        const data = await geminiRes.json().catch(() => null);
         if (!geminiRes.ok) {
-          const errText = await geminiRes.text().catch(() => '');
-          let errMsg = errText.slice(0, 200);
-          try { errMsg = JSON.parse(errText)?.error?.message ?? errMsg; } catch {}
+          const errMsg = data?.error?.message
+            ?? (data ? JSON.stringify(data).slice(0, 300) : 'レスポンス解析失敗');
           return json({ error: `Gemini APIエラー (HTTP ${geminiRes.status}): ${errMsg}` }, 500);
         }
 
