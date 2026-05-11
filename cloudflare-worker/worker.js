@@ -182,7 +182,7 @@ function getFrontendHTML() {
     <!-- アップロード -->
     <div class="card" id="upload-section">
       <div class="upload-area" id="drop-zone">
-        <input type="file" id="file-input" accept="image/*" capture="environment">
+        <input type="file" id="file-input" accept="image/*">
         <div class="upload-icon">📸</div>
         <div class="upload-text">スクショを選択 / カメラで撮影</div>
         <div class="upload-sub">タップして選択、またはここにドロップ</div>
