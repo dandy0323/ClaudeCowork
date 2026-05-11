@@ -414,7 +414,7 @@ export default {
       // ④ Gemini API 呼び出し
       try {
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -432,8 +432,9 @@ export default {
 
         const data = await geminiRes.json();
         if (!geminiRes.ok) {
-          const errBody = await geminiRes.json().catch(() => ({}));
-          const errMsg = errBody?.error?.message ?? '詳細不明';
+          const errText = await geminiRes.text().catch(() => '');
+          let errMsg = errText.slice(0, 200);
+          try { errMsg = JSON.parse(errText)?.error?.message ?? errMsg; } catch {}
           return json({ error: `Gemini APIエラー (HTTP ${geminiRes.status}): ${errMsg}` }, 500);
         }
 
