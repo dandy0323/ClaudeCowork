@@ -102,12 +102,19 @@ function getFrontendHTML() {
     .upload-icon { font-size: 40px; margin-bottom: 8px; }
     .upload-text { color: #1F3864; font-size: 15px; font-weight: 600; }
     .upload-sub  { color: #888; font-size: 12px; margin-top: 4px; }
-    .btn-paste {
-      width: 100%; padding: 16px; background: #1F3864; color: #fff; border: none;
-      border-radius: 10px; font-size: 17px; font-weight: 700; cursor: pointer; letter-spacing: 0.5px;
+    #paste-zone {
+      width: 100%; min-height: 110px; border: 2.5px dashed #2E75B6; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; outline: none; caret-color: transparent;
+      -webkit-user-select: text; user-select: text;
+      background: #f8fbff;
     }
-    .btn-paste:active { background: #2E75B6; }
-    .hint { text-align: center; font-size: 12px; color: #999; margin: 6px 0 12px; }
+    #paste-zone:focus { border-color: #1F3864; background: #eef4ff; }
+    #paste-zone img { display: none; }
+    .paste-inner { text-align: center; pointer-events: none; padding: 16px; }
+    .paste-icon { font-size: 36px; margin-bottom: 6px; }
+    .paste-text { color: #1F3864; font-size: 15px; font-weight: 700; }
+    .paste-sub  { color: #888; font-size: 12px; margin-top: 4px; }
     .divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: #bbb; font-size: 12px; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e0e0e0; }
     #preview-wrap { display: none; margin-top: 16px; text-align: center; }
@@ -161,8 +168,13 @@ function getFrontendHTML() {
 
     <!-- アップロード -->
     <div class="card" id="upload-section">
-      <button class="btn-paste" id="paste-btn">📋 スクショを貼り付け</button>
-      <p class="hint">スクショ撮影後すぐにタップ</p>
+      <div id="paste-zone" contenteditable="true" inputmode="none">
+        <div class="paste-inner" id="paste-inner">
+          <div class="paste-icon">📋</div>
+          <div class="paste-text">ここを長押し → 「ペースト」</div>
+          <div class="paste-sub">スクショをコピー後にタップして長押し</div>
+        </div>
+      </div>
       <div class="divider"><span>または</span></div>
       <div class="upload-area" id="drop-zone">
         <input type="file" id="file-input" accept="image/*">
@@ -190,7 +202,8 @@ function getFrontendHTML() {
     const STORAGE_KEY = 'portfolio_auth_token';
     let authToken = localStorage.getItem(STORAGE_KEY) || '';
 
-    const pasteBtn      = document.getElementById('paste-btn');
+    const pasteZone     = document.getElementById('paste-zone');
+    const pasteInner    = document.getElementById('paste-inner');
     const authSection   = document.getElementById('auth-section');
     const authBtn       = document.getElementById('auth-btn');
     const authError     = document.getElementById('auth-error');
@@ -229,36 +242,35 @@ function getFrontendHTML() {
     });
     secretInput.addEventListener('keydown', e => { if (e.key === 'Enter') authBtn.click(); });
 
-    // クリップボードから貼り付け
-    pasteBtn.addEventListener('click', async () => {
-      if (pasteBtn.disabled) return;
-      pasteBtn.disabled = true;
-      const orig = pasteBtn.textContent;
-      try {
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
-          const imgType = item.types.find(t => t.startsWith('image/'));
-          if (imgType) {
-            const blob = await item.getType(imgType);
-            setFile(new File([blob], 'screenshot.png', { type: imgType }));
-            pasteBtn.disabled = false;
-            return;
-          }
-        }
-        pasteBtn.textContent = '⚠️ クリップボードに画像がありません';
-        setTimeout(() => { pasteBtn.textContent = orig; pasteBtn.disabled = false; }, 2500);
-      } catch {
-        pasteBtn.textContent = '⚠️ 許可が必要です（再タップ）';
-        setTimeout(() => { pasteBtn.textContent = orig; pasteBtn.disabled = false; }, 2500);
-      }
-    });
+    // 貼り付けゾーン: iOS長押し→ペースト 対応
+    const PASTE_HINT = '<div class="paste-inner"><div class="paste-icon">📋</div><div class="paste-text">ここを長押し → 「ペースト」</div><div class="paste-sub">スクショをコピー後にタップして長押し</div></div>';
 
-    // キーボード Cmd+V / Ctrl+V でも貼り付け可能
-    document.addEventListener('paste', e => {
-      const items = e.clipboardData?.items ?? [];
-      for (const item of [...items]) {
-        if (item.type.startsWith('image/')) { setFile(item.getAsFile()); return; }
+    pasteZone.addEventListener('paste', e => {
+      e.preventDefault();
+      pasteZone.innerHTML = PASTE_HINT;
+
+      // ① clipboardData.items から画像を取得（Android/PCで確実）
+      const items = [...(e.clipboardData?.items ?? [])];
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) { setFile(file); return; }
+        }
       }
+
+      // ② 貼り付けられたHTMLの中のdata URLから取得（iOS Safariで有効）
+      const html = e.clipboardData?.getData('text/html') ?? '';
+      const m = html.match(/src="(data:image\/[^"]+)"/);
+      if (m) {
+        fetch(m[1]).then(r => r.blob()).then(blob => {
+          setFile(new File([blob], 'screenshot.png', { type: blob.type }));
+        });
+        return;
+      }
+
+      // 画像が見つからない場合
+      pasteZone.innerHTML = '<div class="paste-inner"><div class="paste-icon">⚠️</div><div class="paste-text" style="color:#c0392b">画像が見つかりませんでした</div><div class="paste-sub">スクショをコピーしてから再度お試しください</div></div>';
+      setTimeout(() => { pasteZone.innerHTML = PASTE_HINT; }, 3000);
     });
 
     // ファイル選択
