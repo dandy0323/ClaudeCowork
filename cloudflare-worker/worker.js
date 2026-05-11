@@ -233,7 +233,7 @@ function getFrontendHTML() {
     // トークンが保存済みなら即アップロード画面へ
     if (authToken) showUpload();
 
-    authBtn.addEventListener('click', () => {
+    function doAuth() {
       const val = secretInput.value.trim();
       if (!val) {
         authError.textContent = 'パスワードを入力してください';
@@ -244,8 +244,12 @@ function getFrontendHTML() {
       try { localStorage.setItem(STORAGE_KEY, authToken); } catch (_) {}
       authError.style.display = 'none';
       showUpload();
-    });
-    secretInput.addEventListener('keydown', e => { if (e.key === 'Enter') authBtn.click(); });
+    }
+    // iOS Safari: キーボード表示中の初回タップはキーボードを閉じるだけで click が発火しない。
+    // touchend で先に処理し preventDefault() で後続の click を抑制する。
+    authBtn.addEventListener('touchend', e => { e.preventDefault(); doAuth(); }, { passive: false });
+    authBtn.addEventListener('click', doAuth);
+    secretInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAuth(); });
 
     // 貼り付けゾーン: iOS長押し→ペースト 対応
     const PASTE_HINT = '<div class="paste-inner"><div class="paste-icon">📋</div><div class="paste-text">ここを長押し → 「ペースト」</div><div class="paste-sub">スクショをコピー後にタップして長押し</div></div>';
