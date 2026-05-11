@@ -150,19 +150,17 @@ function getFrontendHTML() {
       border: 2px solid #1F3864; border-radius: 10px; font-size: 15px;
       font-weight: 600; cursor: pointer; margin-bottom: 24px;
     }
-    #paste-zone {
+    #paste-btn {
       width: 100%; min-height: 110px; border: 2.5px dashed #2E75B6; border-radius: 12px;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; outline: none; caret-color: transparent;
-      -webkit-user-select: text; user-select: text;
-      background: #f8fbff;
+      background: #f8fbff; cursor: pointer; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 6px; padding: 16px;
     }
-    #paste-zone:focus { border-color: #1F3864; background: #eef4ff; }
-    #paste-zone img { display: none; }
-    .paste-inner { text-align: center; pointer-events: none; padding: 16px; }
-    .paste-icon { font-size: 36px; margin-bottom: 6px; }
+    #paste-btn:active { background: #eef4ff; border-color: #1F3864; }
+    #paste-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .paste-icon { font-size: 36px; }
     .paste-text { color: #1F3864; font-size: 15px; font-weight: 700; }
-    .paste-sub  { color: #888; font-size: 12px; margin-top: 4px; }
+    .paste-sub  { color: #888; font-size: 12px; }
+    #paste-msg  { font-size: 13px; margin-top: 6px; color: #c0392b; display: none; }
     .divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: #bbb; font-size: 12px; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e0e0e0; }
     .upload-area {
@@ -207,13 +205,12 @@ function getFrontendHTML() {
 
   <div class="container">
     <div class="card">
-      <div id="paste-zone" contenteditable="true" inputmode="none">
-        <div class="paste-inner" id="paste-inner">
-          <div class="paste-icon">📋</div>
-          <div class="paste-text">ここを長押し → 「ペースト」</div>
-          <div class="paste-sub">スクショをコピー後にタップして長押し</div>
-        </div>
-      </div>
+      <button id="paste-btn" type="button">
+        <div class="paste-icon">📋</div>
+        <div class="paste-text">スクショを貼り付け</div>
+        <div class="paste-sub">タップしてクリップボードから読み込む</div>
+      </button>
+      <div id="paste-msg"></div>
       <div class="divider"><span>または</span></div>
       <div class="upload-area" id="drop-zone">
         <input type="file" id="file-input" accept="image/*">
@@ -238,7 +235,8 @@ function getFrontendHTML() {
   </div>
 
   <script>
-    const pasteZone    = document.getElementById('paste-zone');
+    const pasteBtn     = document.getElementById('paste-btn');
+    const pasteMsg     = document.getElementById('paste-msg');
     const fileInput    = document.getElementById('file-input');
     const dropZone     = document.getElementById('drop-zone');
     const previewWrap  = document.getElementById('preview-wrap');
@@ -253,55 +251,41 @@ function getFrontendHTML() {
 
     let selectedFile = null;
 
-    const PASTE_HINT = '<div class="paste-inner"><div class="paste-icon">📋</div><div class="paste-text">ここを長押し → 「ペースト」</div><div class="paste-sub">スクショをコピー後にタップして長押し</div></div>';
+    function showPasteMsg(text, isError = true) {
+      pasteMsg.textContent = text;
+      pasteMsg.style.color = isError ? '#c0392b' : '#2e7d32';
+      pasteMsg.style.display = 'block';
+      setTimeout(() => { pasteMsg.style.display = 'none'; }, 4000);
+    }
 
-    pasteZone.addEventListener('paste', e => {
-      // ① clipboardData.items から画像取得（PC / Android）
-      const items = [...(e.clipboardData?.items ?? [])];
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            e.preventDefault();
-            pasteZone.innerHTML = PASTE_HINT;
-            setFile(file);
-            return;
-          }
-        }
-      }
-
-      // ② HTML内 data URL（一部環境）
-      const html = e.clipboardData?.getData('text/html') ?? '';
-      const m = html.match(/src="(data:image\/[^"]+)"/);
-      if (m) {
-        e.preventDefault();
-        pasteZone.innerHTML = PASTE_HINT;
-        fetch(m[1]).then(r => r.blob()).then(blob => {
-          setFile(new File([blob], 'screenshot.png', { type: blob.type }));
-        });
+    pasteBtn.addEventListener('click', async () => {
+      if (!navigator.clipboard?.read) {
+        showPasteMsg('このブラウザは clipboard.read に未対応です。下の「ファイルから選択」をお使いください。');
         return;
       }
-
-      // ③ iOS Safari: preventDefault せずブラウザに <img> を挿入させ、後から取り出す
-      setTimeout(() => {
-        const img = pasteZone.querySelector('img');
-        if (img && img.src) {
-          const src = img.src;
-          pasteZone.innerHTML = PASTE_HINT;
-          fetch(src)
-            .then(r => r.blob())
-            .then(blob => setFile(new File([blob], 'screenshot.png', { type: blob.type || 'image/png' })))
-            .catch(() => showPasteError());
-        } else {
-          showPasteError();
+      pasteBtn.disabled = true;
+      try {
+        const clipItems = await navigator.clipboard.read();
+        for (const item of clipItems) {
+          for (const type of item.types) {
+            if (type.startsWith('image/')) {
+              const blob = await item.getType(type);
+              setFile(new File([blob], 'screenshot.png', { type }));
+              pasteBtn.disabled = false;
+              return;
+            }
+          }
         }
-      }, 200);
+        showPasteMsg('クリップボードに画像がありません。スクショをコピーしてから再度タップしてください。');
+      } catch (err) {
+        if (err.name === 'NotAllowedError') {
+          showPasteMsg('アクセスが拒否されました。iOSの「許可」を選択してから再度タップしてください。');
+        } else {
+          showPasteMsg('読み込み失敗: ' + err.message);
+        }
+      }
+      pasteBtn.disabled = false;
     });
-
-    function showPasteError() {
-      pasteZone.innerHTML = '<div class="paste-inner"><div class="paste-icon">⚠️</div><div class="paste-text" style="color:#c0392b">画像が見つかりませんでした</div><div class="paste-sub">スクショをコピーしてから再度お試しください</div></div>';
-      setTimeout(() => { pasteZone.innerHTML = PASTE_HINT; }, 3000);
-    }
 
     fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
