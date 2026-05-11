@@ -1,6 +1,7 @@
 /**
  * Cloudflare Worker: 株式ポートフォリオ週次レポート自動生成
- * GET  /         → フロントエンドHTML（初回はパスワード設定画面）
+ * GET  /         → ログイン画面 or アプリ画面（Cookie認証）
+ * POST /login    → パスワード検証 → Cookieセット → リダイレクト
  * POST /analyze  → スクショ画像 → Gemini解析 → HTMLレポート
  *
  * 環境変数 (Workerシークレット):
@@ -45,7 +46,77 @@ const ANALYZE_PROMPT = `
 `.trim();
 
 // ============================================================
-// フロントエンドHTML
+// Cookie ユーティリティ
+// ============================================================
+function isAuthenticated(request, env) {
+  const cookie = request.headers.get('Cookie') ?? '';
+  const m = cookie.match(/(?:^|;\s*)pa_session=([^;]+)/);
+  return m ? m[1] === env.WORKER_SECRET : false;
+}
+
+function setSessionCookie(value) {
+  return `pa_session=${value}; HttpOnly; Secure; SameSite=Strict; Max-Age=604800; Path=/`;
+}
+
+// ============================================================
+// ログイン画面HTML
+// ============================================================
+function getLoginHTML(errorMsg = '') {
+  const err = errorMsg
+    ? `<div style="margin-top:12px;padding:12px;background:#fff0f0;border:1px solid #f5c6cb;border-radius:8px;color:#c0392b;font-size:14px">${errorMsg}</div>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>株式ポートフォリオ分析</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, 'Helvetica Neue', sans-serif; background: #f4f6f9; min-height: 100vh; }
+    header { background: #1F3864; color: #fff; padding: 16px 20px; }
+    header h1 { font-size: 18px; font-weight: 700; }
+    header p  { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+    .container { max-width: 600px; margin: 40px auto; padding: 0 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 28px 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { font-size: 17px; color: #1F3864; margin-bottom: 8px; }
+    p  { font-size: 13px; color: #666; margin-bottom: 20px; line-height: 1.6; }
+    input[type="password"] {
+      display: block; width: 100%; padding: 14px 16px;
+      border: 1.5px solid #ddd; border-radius: 10px;
+      font-size: 16px; outline: none; margin-bottom: 12px;
+    }
+    input[type="password"]:focus { border-color: #2E75B6; }
+    button[type="submit"] {
+      display: block; width: 100%; padding: 14px;
+      background: #2E75B6; color: #fff; border: none;
+      border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    button[type="submit"]:active { background: #1F3864; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📊 株式ポートフォリオ分析</h1>
+    <p>スクショをアップロードして週次レポートを自動生成</p>
+  </header>
+  <div class="container">
+    <div class="card">
+      <h2>🔑 アクセスパスワード</h2>
+      <p>Cloudflare Worker に設定した <code>WORKER_SECRET</code> を入力してください。</p>
+      <form method="POST" action="/login">
+        <input type="password" name="password" placeholder="パスワードを入力" autocomplete="current-password" autofocus>
+        <button type="submit">認証</button>
+      </form>
+      ${err}
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// ============================================================
+// アプリ画面HTML（認証済み後に表示）
 // ============================================================
 function getFrontendHTML() {
   return `<!DOCTYPE html>
@@ -68,16 +139,6 @@ function getFrontendHTML() {
       background: #fff; border-radius: 12px; padding: 24px 20px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px;
     }
-    /* ---- 認証フォーム ---- */
-    #auth-section h2 { font-size: 16px; color: #1F3864; margin-bottom: 8px; }
-    #auth-section p  { font-size: 13px; color: #666; margin-bottom: 16px; line-height: 1.5; }
-    .input-row { display: flex; gap: 8px; }
-    #secret-input {
-      flex: 1; padding: 12px 14px; border: 1.5px solid #ddd; border-radius: 8px;
-      font-size: 15px; outline: none;
-    }
-    #secret-input:focus { border-color: #2E75B6; }
-    /* ---- 共通ボタン ---- */
     .btn-primary {
       padding: 12px 20px; background: #2E75B6; color: #fff; border: none;
       border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer;
@@ -89,19 +150,6 @@ function getFrontendHTML() {
       border: 2px solid #1F3864; border-radius: 10px; font-size: 15px;
       font-weight: 600; cursor: pointer; margin-bottom: 24px;
     }
-    /* ---- アップロード ---- */
-    #upload-section { display: none; }
-    .upload-area {
-      border: 2px dashed #2E75B6; border-radius: 10px; padding: 32px 16px;
-      text-align: center; cursor: pointer; transition: background 0.2s; position: relative;
-    }
-    .upload-area:active, .upload-area.drag-over { background: #e8f0fe; }
-    .upload-area input[type="file"] {
-      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
-    }
-    .upload-icon { font-size: 40px; margin-bottom: 8px; }
-    .upload-text { color: #1F3864; font-size: 15px; font-weight: 600; }
-    .upload-sub  { color: #888; font-size: 12px; margin-top: 4px; }
     #paste-zone {
       width: 100%; min-height: 110px; border: 2.5px dashed #2E75B6; border-radius: 12px;
       display: flex; align-items: center; justify-content: center;
@@ -117,10 +165,17 @@ function getFrontendHTML() {
     .paste-sub  { color: #888; font-size: 12px; margin-top: 4px; }
     .divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: #bbb; font-size: 12px; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e0e0e0; }
+    .upload-area {
+      border: 2px dashed #2E75B6; border-radius: 10px; padding: 32px 16px;
+      text-align: center; cursor: pointer; transition: background 0.2s; position: relative;
+    }
+    .upload-area:active, .upload-area.drag-over { background: #e8f0fe; }
+    .upload-area input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
     #preview-wrap { display: none; margin-top: 16px; text-align: center; }
     #preview-img  { max-width: 100%; max-height: 240px; border-radius: 8px; border: 1px solid #ddd; }
     #analyze-btn  { display: none; width: 100%; margin-top: 16px; }
-    /* ---- ローディング ---- */
     #loading { display: none; text-align: center; }
     .spinner {
       width: 40px; height: 40px; border: 4px solid #e0e7f0; border-top-color: #2E75B6;
@@ -128,17 +183,14 @@ function getFrontendHTML() {
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     #loading p { color: #555; font-size: 14px; }
-    /* ---- エラー ---- */
     .error-box {
       display: none; background: #fff0f0; border: 1px solid #f5c6cb;
       border-radius: 10px; padding: 14px 16px; color: #c0392b; font-size: 14px; margin-bottom: 16px;
     }
-    /* ---- レポート ---- */
     #report-wrap { display: none; margin-bottom: 24px; }
     #report-wrap h2 { font-size: 14px; color: #555; margin-bottom: 8px; }
     #report-frame { width: 100%; border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.10); min-height: 80vh; }
     #new-analyze-btn { display: none; }
-    /* ---- ロック解除バッジ ---- */
     .badge {
       display: inline-block; background: #e8f5e9; color: #2e7d32;
       font-size: 11px; padding: 2px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle;
@@ -148,26 +200,13 @@ function getFrontendHTML() {
 <body>
   <header>
     <div>
-      <h1>📊 株式ポートフォリオ分析 <span class="badge" id="lock-badge" style="display:none">🔓 認証済み</span></h1>
+      <h1>📊 株式ポートフォリオ分析 <span class="badge">🔓 認証済み</span></h1>
       <p>スクショをアップロードして週次レポートを自動生成</p>
     </div>
   </header>
 
   <div class="container">
-
-    <!-- 認証フォーム -->
-    <div class="card" id="auth-section">
-      <h2>🔑 アクセスパスワード</h2>
-      <p>Cloudflare Worker に設定した <code>WORKER_SECRET</code> を入力してください。<br>入力後はこのブラウザに保存されます。</p>
-      <div class="input-row">
-        <input type="password" id="secret-input" placeholder="パスワードを入力" autocomplete="current-password">
-        <button class="btn-primary" id="auth-btn">認証</button>
-      </div>
-      <div class="error-box" id="auth-error">パスワードが正しくありません</div>
-    </div>
-
-    <!-- アップロード -->
-    <div class="card" id="upload-section">
+    <div class="card">
       <div id="paste-zone" contenteditable="true" inputmode="none">
         <div class="paste-inner" id="paste-inner">
           <div class="paste-icon">📋</div>
@@ -178,7 +217,7 @@ function getFrontendHTML() {
       <div class="divider"><span>または</span></div>
       <div class="upload-area" id="drop-zone">
         <input type="file" id="file-input" accept="image/*">
-        <div class="upload-text" style="font-size:13px;color:#888">📂 ファイルから選択</div>
+        <div style="font-size:13px;color:#888">📂 ファイルから選択</div>
       </div>
       <div id="preview-wrap"><img id="preview-img" alt="選択した画像"></div>
       <button id="analyze-btn" class="btn-primary">🔍 分析してレポートを生成</button>
@@ -199,66 +238,27 @@ function getFrontendHTML() {
   </div>
 
   <script>
-    const STORAGE_KEY = 'portfolio_auth_token';
-    let authToken = '';
-    try { authToken = localStorage.getItem(STORAGE_KEY) || ''; } catch (_) {}
-
-    const pasteZone     = document.getElementById('paste-zone');
-    const pasteInner    = document.getElementById('paste-inner');
-    const authSection   = document.getElementById('auth-section');
-    const authBtn       = document.getElementById('auth-btn');
-    const authError     = document.getElementById('auth-error');
-    const secretInput   = document.getElementById('secret-input');
-    const uploadSection = document.getElementById('upload-section');
-    const fileInput     = document.getElementById('file-input');
-    const dropZone      = document.getElementById('drop-zone');
-    const previewWrap   = document.getElementById('preview-wrap');
-    const previewImg    = document.getElementById('preview-img');
-    const analyzeBtn    = document.getElementById('analyze-btn');
-    const loading       = document.getElementById('loading');
-    const analyzeError  = document.getElementById('analyze-error');
-    const reportWrap    = document.getElementById('report-wrap');
-    const reportFrame   = document.getElementById('report-frame');
-    const newBtn        = document.getElementById('new-analyze-btn');
-    const lockBadge     = document.getElementById('lock-badge');
+    const pasteZone    = document.getElementById('paste-zone');
+    const fileInput    = document.getElementById('file-input');
+    const dropZone     = document.getElementById('drop-zone');
+    const previewWrap  = document.getElementById('preview-wrap');
+    const previewImg   = document.getElementById('preview-img');
+    const analyzeBtn   = document.getElementById('analyze-btn');
+    const loading      = document.getElementById('loading');
+    const analyzeError = document.getElementById('analyze-error');
+    const reportWrap   = document.getElementById('report-wrap');
+    const reportFrame  = document.getElementById('report-frame');
+    const newBtn       = document.getElementById('new-analyze-btn');
+    const uploadCard   = analyzeBtn.closest('.card');
 
     let selectedFile = null;
 
-    function showUpload() {
-      authSection.style.display  = 'none';
-      uploadSection.style.display = 'block';
-      lockBadge.style.display    = 'inline-block';
-    }
-
-    // トークンが保存済みなら即アップロード画面へ
-    if (authToken) showUpload();
-
-    function doAuth() {
-      const val = secretInput.value.trim();
-      if (!val) {
-        authError.textContent = 'パスワードを入力してください';
-        authError.style.display = 'block';
-        return;
-      }
-      authToken = val;
-      try { localStorage.setItem(STORAGE_KEY, authToken); } catch (_) {}
-      authError.style.display = 'none';
-      showUpload();
-    }
-    // iOS Safari: キーボード表示中の初回タップはキーボードを閉じるだけで click が発火しない。
-    // touchend で先に処理し preventDefault() で後続の click を抑制する。
-    authBtn.addEventListener('touchend', e => { e.preventDefault(); doAuth(); }, { passive: false });
-    authBtn.addEventListener('click', doAuth);
-    secretInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAuth(); });
-
-    // 貼り付けゾーン: iOS長押し→ペースト 対応
     const PASTE_HINT = '<div class="paste-inner"><div class="paste-icon">📋</div><div class="paste-text">ここを長押し → 「ペースト」</div><div class="paste-sub">スクショをコピー後にタップして長押し</div></div>';
 
     pasteZone.addEventListener('paste', e => {
       e.preventDefault();
       pasteZone.innerHTML = PASTE_HINT;
 
-      // ① clipboardData.items から画像を取得（Android/PCで確実）
       const items = [...(e.clipboardData?.items ?? [])];
       for (const item of items) {
         if (item.type.startsWith('image/')) {
@@ -267,7 +267,6 @@ function getFrontendHTML() {
         }
       }
 
-      // ② 貼り付けられたHTMLの中のdata URLから取得（iOS Safariで有効）
       const html = e.clipboardData?.getData('text/html') ?? '';
       const m = html.match(/src="(data:image\/[^"]+)"/);
       if (m) {
@@ -277,12 +276,10 @@ function getFrontendHTML() {
         return;
       }
 
-      // 画像が見つからない場合
       pasteZone.innerHTML = '<div class="paste-inner"><div class="paste-icon">⚠️</div><div class="paste-text" style="color:#c0392b">画像が見つかりませんでした</div><div class="paste-sub">スクショをコピーしてから再度お試しください</div></div>';
       setTimeout(() => { pasteZone.innerHTML = PASTE_HINT; }, 3000);
     });
 
-    // ファイル選択
     fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
@@ -295,7 +292,11 @@ function getFrontendHTML() {
     function setFile(file) {
       selectedFile = file;
       const reader = new FileReader();
-      reader.onload = e => { previewImg.src = e.target.result; previewWrap.style.display = 'block'; analyzeBtn.style.display = 'block'; };
+      reader.onload = e => {
+        previewImg.src = e.target.result;
+        previewWrap.style.display = 'block';
+        analyzeBtn.style.display = 'block';
+      };
       reader.readAsDataURL(file);
     }
 
@@ -303,32 +304,21 @@ function getFrontendHTML() {
       if (!selectedFile) return;
       analyzeBtn.disabled = true;
       analyzeError.style.display = 'none';
-      uploadSection.style.display = 'none';
+      uploadCard.style.display = 'none';
       loading.style.display = 'block';
 
       try {
         const base64 = await toBase64(selectedFile);
         const res = await fetch('/analyze', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + authToken,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imageBase64: base64, mediaType: selectedFile.type }),
         });
 
         const data = await res.json();
 
         if (res.status === 401) {
-          // トークンが無効 → 再認証
-          localStorage.removeItem(STORAGE_KEY);
-          authToken = '';
-          loading.style.display = 'none';
-          authSection.style.display = 'block';
-          lockBadge.style.display = 'none';
-          authError.textContent = 'パスワードが正しくありません。再入力してください。';
-          authError.style.display = 'block';
-          analyzeBtn.disabled = false;
+          location.href = '/';
           return;
         }
 
@@ -343,7 +333,7 @@ function getFrontendHTML() {
         newBtn.style.display = 'block';
       } catch (err) {
         loading.style.display = 'none';
-        uploadSection.style.display = 'block';
+        uploadCard.style.display = 'block';
         analyzeBtn.disabled = false;
         analyzeError.textContent = '⚠️ ' + err.message;
         analyzeError.style.display = 'block';
@@ -355,7 +345,7 @@ function getFrontendHTML() {
       previewWrap.style.display = 'none'; analyzeBtn.style.display = 'none';
       analyzeBtn.disabled = false; reportWrap.style.display = 'none';
       newBtn.style.display = 'none'; analyzeError.style.display = 'none';
-      uploadSection.style.display = 'block';
+      uploadCard.style.display = 'block';
     });
 
     function toBase64(file) {
@@ -376,40 +366,49 @@ function getFrontendHTML() {
 // ============================================================
 export default {
   async fetch(request, env) {
-    const url    = new URL(request.url);
-    const origin = request.headers.get('Origin') ?? '';
-    const workerOrigin = `https://${url.hostname}`;
+    const url = new URL(request.url);
 
-    // 同一オリジンのみ許可（GET はブラウザ直アクセスのため除外）
-    const isSameOrigin = !origin || origin === workerOrigin;
+    // ログイン処理（HTMLフォームPOST）
+    if (request.method === 'POST' && url.pathname === '/login') {
+      let password = '';
+      try {
+        const form = await request.formData();
+        password = (form.get('password') ?? '').trim();
+      } catch {
+        return new Response(getLoginHTML('リクエスト形式エラー'), { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      }
 
-    if (request.method === 'OPTIONS') {
-      // プリフライト: 同一オリジンのみ許可
-      if (!isSameOrigin) return new Response('Forbidden', { status: 403 });
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': workerOrigin,
-          'Access-Control-Allow-Methods': 'POST',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400',
-        },
+      if (password && password === env.WORKER_SECRET) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            'Location': '/',
+            'Set-Cookie': setSessionCookie(env.WORKER_SECRET),
+          },
+        });
+      }
+      return new Response(getLoginHTML('パスワードが正しくありません'), {
+        status: 401,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }
 
-    // フロントエンド配信
+    // フロントエンド配信（Cookie認証済みのみ）
     if (request.method === 'GET' && url.pathname === '/') {
+      if (!isAuthenticated(request, env)) {
+        return new Response(getLoginHTML(), {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      }
       return new Response(getFrontendHTML(), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY' },
       });
     }
 
-    // 解析エンドポイント
+    // 解析エンドポイント（Cookie認証）
     if (request.method === 'POST' && url.pathname === '/analyze') {
-      // ① Bearer トークン認証
-      const auth = request.headers.get('Authorization') ?? '';
-      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      if (!env.WORKER_SECRET || token !== env.WORKER_SECRET) {
-        return json({ error: '認証に失敗しました' }, 401);
+      if (!isAuthenticated(request, env)) {
+        return json({ error: '認証が必要です' }, 401);
       }
 
       let body;
@@ -419,12 +418,10 @@ export default {
 
       const { imageBase64, mediaType } = body;
 
-      // ② MIMEタイプ検証
       if (!ALLOWED_MIME.includes(mediaType)) {
         return json({ error: '対応していない画像形式です（JPEG/PNG/WebP/HEIC のみ）' }, 400);
       }
 
-      // ③ サイズ検証（Base64 は元サイズの約4/3）
       const approxBytes = (imageBase64?.length ?? 0) * 0.75;
       if (approxBytes > MAX_IMAGE_BYTES) {
         return json({ error: '画像サイズが大きすぎます（上限 5MB）' }, 400);
@@ -432,7 +429,6 @@ export default {
 
       if (!imageBase64) return json({ error: '画像データがありません' }, 400);
 
-      // ④ Gemini API 呼び出し
       try {
         const geminiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${env.GEMINI_API_KEY}`,
