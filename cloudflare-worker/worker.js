@@ -279,7 +279,7 @@ function getFrontendHTML() {
       const history = loadHistory();
       const now = new Date();
       const days = ['日','月','火','水','木','金','土'];
-      const label = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${days[now.getDay()]}）`;
+      const label = now.getFullYear() + '年' + (now.getMonth()+1) + '月' + now.getDate() + '日（' + days[now.getDay()] + '）';
       history.unshift({ id: now.getTime(), label, report });
       if (history.length > MAX_HISTORY) history.pop();
       try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(_) {}
@@ -293,10 +293,10 @@ function getFrontendHTML() {
         return;
       }
       list.innerHTML = history.map(item =>
-        `<div class="history-item" data-id="${item.id}">
-          <span class="history-date">📄 ${item.label}</span>
-          <span class="history-arrow">›</span>
-        </div>`
+        '<div class="history-item" data-id="' + item.id + '">' +
+        '<span class="history-date">&#128196; ' + item.label + '</span>' +
+        '<span class="history-arrow">&#8250;</span>' +
+        '</div>'
       ).join('');
       list.querySelectorAll('.history-item').forEach(el => {
         el.addEventListener('click', () => {
