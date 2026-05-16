@@ -522,6 +522,7 @@ export default {
                   { text: ANALYZE_PROMPT },
                 ],
               }],
+              tools: [{ google_search: {} }],
               generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
             }),
           }
