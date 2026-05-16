@@ -12,29 +12,43 @@
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_MIME    = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
-const ANALYZE_PROMPT = `
-あなたは株式ポートフォリオの週次レポートを生成するAIアシスタントです。
+// Step1: 画像からポートフォリオデータを抽出するプロンプト
+const EXTRACTION_PROMPT = `
+証券会社アプリのポートフォリオ画面のスクリーンショットです。
+表示されている全データを正確に読み取り、以下のJSON形式で出力してください。
 
-添付のスクリーンショットは証券会社アプリのポートフォリオ画面です。
-スクリーンショットに表示されている数値をすべて正確に読み取り、以下の構成でHTMLレポートを生成してください。
+{
+  "total": { "value": 評価総額(数値), "gain": 損益額(数値), "gainPct": 損益率(数値) },
+  "holdings": [
+    { "code": "銘柄コード", "name": "銘柄名", "value": 評価額, "gain": 損益額, "gainPct": 損益率, "shares": 保有株数 }
+  ]
+}
+
+JSONのみ出力し、説明文は不要です。
+`.trim();
+
+// Step2: ポートフォリオデータ + Web検索でHTMLレポートを生成するプロンプト
+const REPORT_PROMPT = `
+あなたは株式ポートフォリオの週次レポートを生成するAIアシスタントです。
+以下のポートフォリオデータをもとに、HTMLレポートを生成してください。
+
+[PORTFOLIO_DATA]
 
 【生成するHTMLレポートの構成】
 1. ヘッダー: 「週次ポートフォリオレポート」タイトル
 2. サマリーカード（横並び3枚）:
-   - 評価総額（スクショの合計値）
-   - 損益額
-   - 損益率
+   - 評価総額・損益額・損益率
 3. 銘柄別評価テーブル:
    - 銘柄コード | 銘柄名 | 評価額 | 損益額 | 損益率 | 評価(〇/△/×) | 来週のアクション
    - 損益プラスの行: 薄緑背景 (#e8f5e9)
    - 損益マイナスの行: 薄赤背景 (#ffebee)
 4. 今週のポイント（箇条書き3〜5点）: 特に動きの大きかった銘柄・市場の出来事
 5. 今週の株価変動要因ニュース一覧:
-   - 当該週に実際に起きた国内外の具体的な出来事・事件・政策決定のニュースを3〜5件列挙
-   - 【選定基準】「イランがホルムズ海峡封鎖を宣言」「米FRBが緊急利上げ」のような実際の事象ニュースのみを対象とする。「投資の基本」「分散投資のすすめ」等の一般的な投資ノウハウ記事は除外する
-   - 各ニュースについて以下を詳細に記載:
+   - Google検索を使い、当該週に実際に起きた国内外の具体的な出来事・事件・政策決定のニュースを3〜5件取得する
+   - 【選定基準】「イランがホルムズ海峡封鎖を宣言」「米FRBが緊急利上げ」のような実際の事象ニュースのみ。投資ノウハウ系記事は除外する
+   - 各ニュースについて以下を記載:
      ① 出来事の概要（いつ・どこで・何が起きたか）
-     ② 記事URL（Google検索で取得した実際の記事URL。NHK・Bloomberg・Reuters・日経・ロイター等）
+     ② 記事URL（Google検索で取得した実際の記事URL）
      ③ 保有銘柄との関連（このニュースがなぜ・どの銘柄にどう影響したか、経済的因果関係を詳しく）
      ④ 過去の類似事例（同種の出来事が過去にどの銘柄にどう影響したか具体的に）
 6. 新規購入検討候補（2〜3銘柄）:
@@ -522,41 +536,57 @@ export default {
 
       if (!imageBase64) return json({ error: '画像データがありません' }, 400);
 
-      try {
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { inline_data: { mime_type: mediaType, data: imageBase64 } },
-                  { text: ANALYZE_PROMPT },
-                ],
-              }],
-              generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
-            }),
-          }
-        );
+      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
 
-        const data = await geminiRes.json().catch(() => null);
-        if (!geminiRes.ok) {
-          const errMsg = data?.error?.message
-            ?? (data ? JSON.stringify(data).slice(0, 300) : 'レスポンス解析失敗');
-          return json({ error: `Gemini APIエラー (HTTP ${geminiRes.status}): ${errMsg}` }, 500);
+      function extractText(data) {
+        const parts = data?.candidates?.[0]?.content?.parts ?? [];
+        return (parts.find(p => p.text && !p.thought) ?? parts.find(p => p.text))?.text ?? '';
+      }
+
+      try {
+        // Step1: 画像解析 → ポートフォリオデータ抽出（google_search なし）
+        const step1Res = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [
+              { inline_data: { mime_type: mediaType, data: imageBase64 } },
+              { text: EXTRACTION_PROMPT },
+            ]}],
+            generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+          }),
+        });
+        const step1Data = await step1Res.json().catch(() => null);
+        if (!step1Res.ok) {
+          const errMsg = step1Data?.error?.message ?? `HTTP ${step1Res.status}`;
+          return json({ error: 'Step1 Gemini APIエラー: ' + errMsg }, 500);
+        }
+        const portfolioText = extractText(step1Data).replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+        if (!portfolioText) return json({ error: 'ポートフォリオデータを読み取れませんでした。再度お試しください。' }, 500);
+
+        // Step2: ポートフォリオデータ + google_search でHTMLレポート生成
+        const reportPrompt = REPORT_PROMPT.replace('[PORTFOLIO_DATA]', portfolioText);
+        const step2Res = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: reportPrompt }] }],
+            tools: [{ google_search: {} }],
+            generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
+          }),
+        });
+        const step2Data = await step2Res.json().catch(() => null);
+        if (!step2Res.ok) {
+          const errMsg = step2Data?.error?.message ?? `HTTP ${step2Res.status}`;
+          return json({ error: 'Step2 Gemini APIエラー: ' + errMsg }, 500);
         }
 
-        let report = data.candidates?.[0]?.content?.parts ?? [];
-        // gemini-2.5-flash はThinkingモデルのためparts[0]が思考内容の場合がある
-        // thought:true でないテキストパートを取得する
-        const textPart = report.find(p => p.text && !p.thought) ?? report.find(p => p.text);
-        let reportHtml = textPart?.text ?? '';
+        let reportHtml = extractText(step2Data);
         reportHtml = reportHtml.replace(/^```html\s*/i, '').replace(/```\s*$/, '').trim();
         if (!reportHtml) return json({ error: 'Geminiからレポートを取得できませんでした。再度お試しください。' }, 500);
         return json({ report: reportHtml }, 200);
-      } catch {
-        return json({ error: 'サーバーエラーが発生しました' }, 500);
+      } catch (e) {
+        return json({ error: 'サーバーエラー: ' + (e?.message ?? e) }, 500);
       }
     }
 
