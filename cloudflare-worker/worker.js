@@ -198,6 +198,11 @@ function getFrontendHTML() {
     #report-wrap h2 { font-size: 14px; color: #555; margin-bottom: 8px; }
     #report-frame { width: 100%; border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.10); min-height: 80vh; }
     #new-analyze-btn { display: none; }
+    #top-new-btn {
+      display: none; width: 100%; padding: 10px; margin-bottom: 12px;
+      background: #f0f4fa; color: #1F3864; border: 2px solid #1F3864;
+      border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+    }
     #history-section h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
     .history-item {
       display: flex; align-items: center; justify-content: space-between;
@@ -223,6 +228,7 @@ function getFrontendHTML() {
   </header>
 
   <div class="container">
+    <button id="top-new-btn">&#8629; 新しいスクショを分析する</button>
     <div class="card">
       <button id="paste-btn" type="button">
         <div class="paste-icon">📋</div>
@@ -271,6 +277,7 @@ function getFrontendHTML() {
     const reportWrap   = document.getElementById('report-wrap');
     const reportFrame  = document.getElementById('report-frame');
     const newBtn       = document.getElementById('new-analyze-btn');
+    const topNewBtn    = document.getElementById('top-new-btn');
     const uploadCard   = analyzeBtn.closest('.card');
 
     let selectedFile = null;
@@ -316,6 +323,7 @@ function getFrontendHTML() {
           };
           reportWrap.style.display = 'block';
           newBtn.style.display = 'block';
+          topNewBtn.style.display = 'block';
           reportWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
       });
@@ -412,6 +420,7 @@ function getFrontendHTML() {
         };
         reportWrap.style.display = 'block';
         newBtn.style.display = 'block';
+        topNewBtn.style.display = 'block';
       } catch (err) {
         loading.style.display = 'none';
         uploadCard.style.display = 'block';
@@ -421,13 +430,16 @@ function getFrontendHTML() {
       }
     });
 
-    newBtn.addEventListener('click', () => {
+    function resetToUpload() {
       selectedFile = null; fileInput.value = '';
       previewWrap.style.display = 'none'; analyzeBtn.style.display = 'none';
       analyzeBtn.disabled = false; reportWrap.style.display = 'none';
-      newBtn.style.display = 'none'; analyzeError.style.display = 'none';
-      uploadCard.style.display = 'block';
-    });
+      newBtn.style.display = 'none'; topNewBtn.style.display = 'none';
+      analyzeError.style.display = 'none'; uploadCard.style.display = 'block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    newBtn.addEventListener('click', resetToUpload);
+    topNewBtn.addEventListener('click', resetToUpload);
 
     function toBase64(file) {
       return new Promise((resolve, reject) => {
@@ -523,7 +535,6 @@ export default {
                   { text: ANALYZE_PROMPT },
                 ],
               }],
-              tools: [{ google_search: {} }],
               generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
             }),
           }
