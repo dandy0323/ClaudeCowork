@@ -190,6 +190,16 @@ function getFrontendHTML() {
     #report-wrap h2 { font-size: 14px; color: #555; margin-bottom: 8px; }
     #report-frame { width: 100%; border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.10); min-height: 80vh; }
     #new-analyze-btn { display: none; }
+    #history-section h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
+    .history-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border: 1px solid #dce8f5; border-radius: 8px;
+      margin-bottom: 8px; cursor: pointer; transition: background 0.15s;
+    }
+    .history-item:active { background: #eef4ff; }
+    .history-date { font-size: 14px; color: #1F3864; font-weight: 600; }
+    .history-arrow { color: #2E75B6; font-size: 18px; line-height: 1; }
+    .history-empty { color: #bbb; font-size: 13px; text-align: center; padding: 12px 0; }
     .badge {
       display: inline-block; background: #e8f5e9; color: #2e7d32;
       font-size: 11px; padding: 2px 8px; border-radius: 20px; margin-left: 8px; vertical-align: middle;
@@ -219,6 +229,11 @@ function getFrontendHTML() {
       </div>
       <div id="preview-wrap"><img id="preview-img" alt="選択した画像"></div>
       <button id="analyze-btn" class="btn-primary">🔍 分析してレポートを生成</button>
+    </div>
+
+    <div class="card" id="history-section">
+      <h3>🗂 分析履歴</h3>
+      <div id="history-list"></div>
     </div>
 
     <div class="card" id="loading">
@@ -251,6 +266,54 @@ function getFrontendHTML() {
     const uploadCard   = analyzeBtn.closest('.card');
 
     let selectedFile = null;
+
+    // ---- 分析履歴 ----
+    const HISTORY_KEY = 'portfolio_history';
+    const MAX_HISTORY = 5;
+
+    function loadHistory() {
+      try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch(_) { return []; }
+    }
+
+    function saveHistory(report) {
+      const history = loadHistory();
+      const now = new Date();
+      const days = ['日','月','火','水','木','金','土'];
+      const label = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${days[now.getDay()]}）`;
+      history.unshift({ id: now.getTime(), label, report });
+      if (history.length > MAX_HISTORY) history.pop();
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch(_) {}
+    }
+
+    function renderHistory() {
+      const history = loadHistory();
+      const list = document.getElementById('history-list');
+      if (history.length === 0) {
+        list.innerHTML = '<div class="history-empty">まだ分析履歴がありません</div>';
+        return;
+      }
+      list.innerHTML = history.map(item =>
+        `<div class="history-item" data-id="${item.id}">
+          <span class="history-date">📄 ${item.label}</span>
+          <span class="history-arrow">›</span>
+        </div>`
+      ).join('');
+      list.querySelectorAll('.history-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const item = loadHistory().find(h => h.id === Number(el.dataset.id));
+          if (!item) return;
+          reportFrame.srcdoc = item.report;
+          reportFrame.onload = () => {
+            try { reportFrame.style.height = reportFrame.contentDocument.body.scrollHeight + 40 + 'px'; } catch(_) {}
+          };
+          reportWrap.style.display = 'block';
+          newBtn.style.display = 'block';
+          reportWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    renderHistory();
 
     function showPasteMsg(text, isError = true) {
       pasteMsg.textContent = text;
@@ -333,6 +396,8 @@ function getFrontendHTML() {
         if (!res.ok || data.error) throw new Error(data.error || 'エラーが発生しました');
 
         loading.style.display = 'none';
+        saveHistory(data.report);
+        renderHistory();
         reportFrame.srcdoc = data.report;
         reportFrame.onload = () => {
           try { reportFrame.style.height = reportFrame.contentDocument.body.scrollHeight + 40 + 'px'; } catch(_) {}
