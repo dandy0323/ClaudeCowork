@@ -33,8 +33,9 @@ const ANALYZE_PROMPT = `
    - 保有銘柄の株価に影響を与えた可能性が高い国内外のニュースを3〜5件列挙
    - 各ニュースについて以下を詳細に記載:
      ① ニュース概要（何が起きたか）
-     ② 株価への影響メカニズム（なぜ・どのように株価が動いたか、経済的因果関係を詳しく）
-     ③ 過去の類似事例（同種のニュースが過去にどの銘柄にどう影響したか具体的に）
+     ② 参考URL（NHK・Bloomberg・Reuters・日経等の該当記事URL。推定の場合は「※要確認」と明記）
+     ③ 株価への影響メカニズム（なぜ・どのように株価が動いたか、経済的因果関係を詳しく）
+     ④ 過去の類似事例（同種のニュースが過去にどの銘柄にどう影響したか具体的に）
 6. 新規購入検討候補（2〜3銘柄）:
    - 現在未保有のセクターから提案
    - 各銘柄: コード・銘柄名・セクター・参考価格帯・注目理由・リスク
@@ -77,7 +78,7 @@ function getLoginHTML(errorMsg = '') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>株式ポートフォリオ分析</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E&#x1F4CA;%3C/text%3E%3C/svg%3E">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, 'Helvetica Neue', sans-serif; background: #f4f6f9; min-height: 100vh; }
@@ -533,9 +534,14 @@ export default {
           return json({ error: `Gemini APIエラー (HTTP ${geminiRes.status}): ${errMsg}` }, 500);
         }
 
-        let report = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-        report = report.replace(/^```html\s*/i, '').replace(/```\s*$/, '').trim();
-        return json({ report }, 200);
+        let report = data.candidates?.[0]?.content?.parts ?? [];
+        // gemini-2.5-flash はThinkingモデルのためparts[0]が思考内容の場合がある
+        // thought:true でないテキストパートを取得する
+        const textPart = report.find(p => p.text && !p.thought) ?? report.find(p => p.text);
+        let reportHtml = textPart?.text ?? '';
+        reportHtml = reportHtml.replace(/^```html\s*/i, '').replace(/```\s*$/, '').trim();
+        if (!reportHtml) return json({ error: 'Geminiからレポートを取得できませんでした。再度お試しください。' }, 500);
+        return json({ report: reportHtml }, 200);
       } catch {
         return json({ error: 'サーバーエラーが発生しました' }, 500);
       }
