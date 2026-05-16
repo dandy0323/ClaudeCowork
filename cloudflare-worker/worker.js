@@ -572,7 +572,7 @@ export default {
           body: JSON.stringify({
             contents: [{ parts: [{ text: reportPrompt }] }],
             tools: [{ google_search: {} }],
-            generationConfig: { maxOutputTokens: 8192, temperature: 0.3 },
+            generationConfig: { maxOutputTokens: 32768, temperature: 0.3 },
           }),
         });
         const step2Data = await step2Res.json().catch(() => null);
