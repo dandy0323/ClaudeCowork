@@ -269,7 +269,7 @@ function getFrontendHTML() {
 
     // ---- 分析履歴 ----
     const HISTORY_KEY = 'portfolio_history';
-    const MAX_HISTORY = 5;
+    const MAX_HISTORY = 20;
 
     function loadHistory() {
       try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch(_) { return []; }
