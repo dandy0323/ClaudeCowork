@@ -348,35 +348,55 @@ function getFrontendHTML() {
 
     function showPasteMsg(text, isError = true) {
       pasteMsg.textContent = text;
-      pasteMsg.style.color = isError ? '#c0392b' : '#2e7d32';
+      pasteMsg.style.color = isError ? '#c0392b' : '#1565c0';
+      pasteMsg.style.background = isError ? '#fff0f0' : '#e3f2fd';
+      pasteMsg.style.border = '1px solid ' + (isError ? '#f5c6cb' : '#90caf9');
+      pasteMsg.style.borderRadius = '8px';
+      pasteMsg.style.padding = '10px 12px';
+      pasteMsg.style.fontSize = '13px';
+      pasteMsg.style.marginTop = '8px';
       pasteMsg.style.display = 'block';
-      setTimeout(() => { pasteMsg.style.display = 'none'; }, 4000);
+      clearTimeout(pasteMsg._t);
+      if (isError) pasteMsg._t = setTimeout(function() { pasteMsg.style.display = 'none'; }, 10000);
     }
+
+    // ネイティブ paste イベント（長押し→ペースト）のフォールバック
+    document.addEventListener('paste', function(e) {
+      var items = e.clipboardData ? e.clipboardData.items : [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          var f = items[i].getAsFile();
+          if (f) { setFile(f); pasteMsg.style.display = 'none'; return; }
+        }
+      }
+    });
 
     pasteBtn.addEventListener('click', async () => {
       if (!navigator.clipboard?.read) {
-        showPasteMsg('このブラウザは clipboard.read に未対応です。下の「ファイルから選択」をお使いください。');
+        showPasteMsg('このブラウザは clipboard.read に未対応です。「ファイルから選択」または長押し→ペーストをお試しください。');
         return;
       }
-      pasteBtn.disabled = true;
+      showPasteMsg('クリップボードを確認中...', false);
       try {
         const clipItems = await navigator.clipboard.read();
+        pasteBtn.disabled = true;
         for (const item of clipItems) {
           for (const type of item.types) {
             if (type.startsWith('image/')) {
               const blob = await item.getType(type);
               setFile(new File([blob], 'screenshot.png', { type }));
               pasteBtn.disabled = false;
+              pasteMsg.style.display = 'none';
               return;
             }
           }
         }
-        showPasteMsg('クリップボードに画像がありません。スクショをコピーしてから再度タップしてください。');
+        showPasteMsg('クリップボードに画像がありません。スクショを長押しでコピーしてから再度タップしてください。');
       } catch (err) {
         if (err.name === 'NotAllowedError') {
-          showPasteMsg('アクセスが拒否されました。iOSの「許可」を選択してから再度タップしてください。');
+          showPasteMsg('アクセスが拒否されました。iOSの確認ダイアログで「許可」を選択してから再度タップしてください。');
         } else {
-          showPasteMsg('読み込み失敗: ' + err.message);
+          showPasteMsg('エラー: ' + err.message);
         }
       }
       pasteBtn.disabled = false;
